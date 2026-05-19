@@ -2,10 +2,18 @@
 Telegram Welcome Bot для BVC — БЕЗ внешних зависимостей.
 Webhook-режим для Amvera.
 
+Алгоритм:
+  1. /start → Выбор типа тренировки (Взрослые/Детские)
+  2. Выбор опыта (с нуля / немного / есть опыт)
+  3. Локация (Песок / СПОТ / Пока не определились)
+  4. Имя (свободный ввод)
+  5. Телефон (кнопка или ввод)
+  6. Финал → отправка менеджерам
+
 Переменные окружения:
   BOT_TOKEN       — токен Telegram бота (от @BotFather)
   MANAGER_CHAT_ID — ID чата куда отправлять заявки (с минусом для групп)
-  WEBHOOK_URL     — публичный URL приложения в Amvera (напр. https://welcomebvcbot-valeriinovikov.amvera.io)
+  WEBHOOK_URL     — публичный URL приложения в Amvera (без /webhook в конце)
   PORT            — порт (по умолчанию 8080)
 """
 
@@ -123,7 +131,8 @@ def reply_keyboard_remove():
 # User state management
 # -----------------------------------------------------------------------------
 STEP_TRAINING = "training"
-STEP_BRANCH = "branch"
+STEP_EXPERIENCE = "experience"
+STEP_LOCATION = "location"
 STEP_NAME = "name"
 STEP_PHONE = "phone"
 
@@ -131,19 +140,16 @@ user_data = {}
 
 
 def get_user_step(chat_id):
-    """Получить текущий шаг пользователя."""
     return user_data.get(chat_id, {}).get("step")
 
 
 def set_user_step(chat_id, step):
-    """Установить шаг пользователя."""
     if chat_id not in user_data:
         user_data[chat_id] = {}
     user_data[chat_id]["step"] = step
 
 
 def save_user_info(chat_id, from_user):
-    """Сохранить информацию о пользователе Telegram."""
     if chat_id not in user_data:
         user_data[chat_id] = {}
     user_data[chat_id]["user_info"] = {
@@ -155,10 +161,9 @@ def save_user_info(chat_id, from_user):
 
 
 # -----------------------------------------------------------------------------
-# Message handlers
+# Step 1: /start — Приветствие + выбор типа тренировки
 # -----------------------------------------------------------------------------
 def handle_start(chat_id):
-    """Приветствие + выбор типа тренировки."""
     user_data[chat_id] = {"step": STEP_TRAINING}
     logger.info(f"User {chat_id} started registration")
 
@@ -167,15 +172,17 @@ def handle_start(chat_id):
     ])
     send_message(
         chat_id,
-        "Привет! 👋 Добро пожаловать!\n\n"
-        "Давайте запишем вас на тренировку. "
-        "Какие тренировки вас интересуют?",
+        "Привет! Это Академия пляжного волейбола BVC 🏐\n"
+        "Поможем записаться на пробную тренировку и подобрать группу по уровню.\n\n"
+        "Выберите какие тренировки вас интересуют?",
         reply_markup=kb,
     )
 
 
+# -----------------------------------------------------------------------------
+# Step 2: Выбор опыта
+# -----------------------------------------------------------------------------
 def handle_training_callback(chat_id, callback_data, callback_id):
-    """Обработка выбора типа тренировки."""
     if get_user_step(chat_id) != STEP_TRAINING:
         answer_callback_query(callback_id, "Начните заново: /start")
         return
@@ -186,44 +193,78 @@ def handle_training_callback(chat_id, callback_data, callback_id):
     }
     training_type = training_map.get(callback_data, "Неизвестно")
     user_data[chat_id]["training_type"] = training_type
-    set_user_step(chat_id, STEP_BRANCH)
+    set_user_step(chat_id, STEP_EXPERIENCE)
     logger.info(f"User {chat_id} chose training: {training_type}")
 
     kb = inline_keyboard([
-        [("Песок", "branch_pesok"), ("Спот", "branch_spot")]
+        [("Нет, хочу попробовать с нуля", "exp_none")],
+        [("Играл/а немного, но без системы", "exp_some")],
+        [("Есть опыт тренировок или игры на любительских турнирах", "exp_experienced")],
     ])
     send_message(
         chat_id,
-        f"Вы выбрали: {training_type}\n\nВ каком филиале?",
+        "Вы уже играли в пляжный волейбол?",
         reply_markup=kb,
     )
     answer_callback_query(callback_id)
 
 
-def handle_branch_callback(chat_id, callback_data, callback_id):
-    """Обработка выбора филиала."""
-    if get_user_step(chat_id) != STEP_BRANCH:
+# -----------------------------------------------------------------------------
+# Step 3: Локация
+# -----------------------------------------------------------------------------
+def handle_experience_callback(chat_id, callback_data, callback_id):
+    if get_user_step(chat_id) != STEP_EXPERIENCE:
         answer_callback_query(callback_id, "Начните заново: /start")
         return
 
-    branch_map = {
-        "branch_pesok": "Песок",
-        "branch_spot": "Спот",
+    experience_map = {
+        "exp_none": "Нет, хочу попробовать с нуля",
+        "exp_some": "Играл/а немного, но без системы",
+        "exp_experienced": "Есть опыт тренировок или игры на любительских турнирах",
     }
-    branch = branch_map.get(callback_data, "Неизвестно")
-    user_data[chat_id]["branch"] = branch
+    experience = experience_map.get(callback_data, "Не указано")
+    user_data[chat_id]["experience"] = experience
+    set_user_step(chat_id, STEP_LOCATION)
+    logger.info(f"User {chat_id} chose experience: {experience}")
+
+    kb = inline_keyboard([
+        [("Песок", "loc_pesok"), ("СПОТ", "loc_spot")],
+        [("Пока не определились", "loc_undecided")],
+    ])
+    send_message(
+        chat_id,
+        "Какая локация удобнее?",
+        reply_markup=kb,
+    )
+    answer_callback_query(callback_id)
+
+
+# -----------------------------------------------------------------------------
+# Step 4: Имя
+# -----------------------------------------------------------------------------
+def handle_location_callback(chat_id, callback_data, callback_id):
+    if get_user_step(chat_id) != STEP_LOCATION:
+        answer_callback_query(callback_id, "Начните заново: /start")
+        return
+
+    location_map = {
+        "loc_pesok": "Песок",
+        "loc_spot": "СПОТ",
+        "loc_undecided": "Пока не определились",
+    }
+    location = location_map.get(callback_data, "Не указано")
+    user_data[chat_id]["location"] = location
     set_user_step(chat_id, STEP_NAME)
-    logger.info(f"User {chat_id} chose branch: {branch}")
+    logger.info(f"User {chat_id} chose location: {location}")
 
     send_message(
         chat_id,
-        f"Филиал: {branch}\n\nКак вас зовут?",
+        "Как вас зовут?",
     )
     answer_callback_query(callback_id)
 
 
 def handle_name_text(chat_id, text):
-    """Обработка ввода имени."""
     if get_user_step(chat_id) != STEP_NAME:
         return False
 
@@ -238,14 +279,16 @@ def handle_name_text(chat_id, text):
 
     send_message(
         chat_id,
-        "Укажите номер телефона для связи",
+        "Ваш номер телефона для связи?",
         reply_markup=reply_keyboard_contact(),
     )
     return True
 
 
+# -----------------------------------------------------------------------------
+# Step 5: Телефон
+# -----------------------------------------------------------------------------
 def handle_phone_text(chat_id, text):
-    """Обработка номера телефона введённого вручную."""
     if get_user_step(chat_id) != STEP_PHONE:
         return False
 
@@ -266,7 +309,6 @@ def handle_phone_text(chat_id, text):
 
 
 def handle_phone_contact(chat_id, phone):
-    """Обработка номера телефона через кнопку «Поделиться»."""
     if get_user_step(chat_id) != STEP_PHONE:
         return False
 
@@ -274,20 +316,23 @@ def handle_phone_contact(chat_id, phone):
     return True
 
 
+# -----------------------------------------------------------------------------
+# Финал: сообщение пользователю + отправка менеджерам
+# -----------------------------------------------------------------------------
 def finish_registration(chat_id, phone):
-    """Завершение регистрации."""
     data = user_data.get(chat_id, {})
     training_type = data.get("training_type", "Не указано")
-    branch = data.get("branch", "Не указано")
+    experience = data.get("experience", "Не указано")
+    location = data.get("location", "Не указано")
     name = data.get("name", "Не указано")
     user_info = data.get("user_info", {})
 
     # Сообщение пользователю
     send_message(
         chat_id,
-        "✅ Вы успешно записались!\n\n"
-        "С вами скоро свяжутся для подтверждения записи. "
-        "Спасибо за обращение!\n\n"
+        "Спасибо! Заявка на пробную тренировку принята 🏐\n"
+        "Менеджер BVC свяжется с вами, уточнит удобное время и поможет подобрать группу по уровню.\n\n"
+        "До встречи на песке!\n\n"
         "Если хотите записаться ещё раз — нажмите /start",
         reply_markup=reply_keyboard_remove(),
     )
@@ -299,9 +344,10 @@ def finish_registration(chat_id, phone):
     user_id = user_info.get("id", "Неизвестно")
 
     manager_text = (
-        f"📥 Новая запись на тренировку!\n\n"
-        f"🏋️ Тип тренировки: {training_type}\n"
-        f"🏢 Филиал: {branch}\n"
+        f"📥 Новая заявка на пробную тренировку!\n\n"
+        f"🏋️ Тренировки: {training_type}\n"
+        f"📋 Опыт: {experience}\n"
+        f"📍 Локация: {location}\n"
         f"👤 Имя: {name}\n"
         f"📞 Телефон: {phone}\n\n"
         f"💬 Telegram: {tg_username}\n"
@@ -323,7 +369,6 @@ def finish_registration(chat_id, phone):
     else:
         logger.warning("MANAGER_CHAT_ID not set, skipping manager notification")
 
-    # Помечаем шаг как завершённый
     user_data[chat_id] = {"step": None}
     logger.info(f"User {chat_id} completed registration")
 
@@ -344,8 +389,10 @@ def process_update(update):
 
         if callback_data.startswith("training_"):
             handle_training_callback(chat_id, callback_data, callback_id)
-        elif callback_data.startswith("branch_"):
-            handle_branch_callback(chat_id, callback_data, callback_id)
+        elif callback_data.startswith("exp_"):
+            handle_experience_callback(chat_id, callback_data, callback_id)
+        elif callback_data.startswith("loc_"):
+            handle_location_callback(chat_id, callback_data, callback_id)
         else:
             answer_callback_query(callback_id, "Начните заново: /start")
         return
@@ -395,16 +442,12 @@ def process_update(update):
 # Multithreaded Webhook HTTP server
 # -----------------------------------------------------------------------------
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
-    """Многопоточный HTTP сервер для обработки webhook."""
     daemon_threads = True
     allow_reuse_address = True
 
 
 class WebhookHandler(BaseHTTPRequestHandler):
-    """HTTP сервер: принимает webhook от Telegram + health check от Amvera."""
-
     def do_GET(self):
-        """Health check для Amvera."""
         logger.info(f"GET {self.path}")
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
@@ -412,19 +455,15 @@ class WebhookHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
     def do_POST(self):
-        """Получение обновлений от Telegram webhook."""
         logger.info(f"POST {self.path}")
-
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
 
-        # Telegram отправляет webhook на любой путь — обрабатываем везде
         try:
             update = json.loads(body.decode("utf-8"))
             update_summary = json.dumps(update, ensure_ascii=False)[:300]
             logger.info(f"Webhook update: {update_summary}")
 
-            # Обрабатываем в отдельном потоке, чтобы быстро ответить 200
             threading.Thread(
                 target=process_update,
                 args=(update,),
@@ -433,14 +472,13 @@ class WebhookHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Error parsing webhook update: {e}")
 
-        # Telegram ожидает 200 OK — отвечаем быстро
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(b'{"ok": true}')
 
     def log_message(self, format, *args):
-        pass  # заглушаем стандартные логи HTTP, используем свои
+        pass
 
 
 # -----------------------------------------------------------------------------
@@ -451,13 +489,10 @@ if __name__ == "__main__":
         logger.error("BOT_TOKEN environment variable is not set!")
         exit(1)
 
-    # Сначала удаляем старый вебхук
     logger.info("Deleting old webhook...")
     tg_request("deleteWebhook", {"drop_pending_updates": False})
 
-    # Устанавливаем webhook
     if WEBHOOK_URL:
-        # Amvera маршрутизирует /webhook на порт 8080
         webhook_endpoint = f"{WEBHOOK_URL.rstrip('/')}/webhook"
         logger.info(f"Setting webhook to: {webhook_endpoint}")
 
@@ -467,7 +502,6 @@ if __name__ == "__main__":
         })
         if result and result.get("ok"):
             logger.info(f"Webhook set successfully to: {webhook_endpoint}")
-            # Проверяем информацию о вебхуке
             info = tg_request("getWebhookInfo")
             if info and info.get("ok"):
                 wh_info = info.get("result", {})
@@ -484,7 +518,6 @@ if __name__ == "__main__":
             "Set WEBHOOK_URL to your Amvera app public URL."
         )
 
-    # Запускаем многопоточный HTTP сервер
     server = ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
     logger.info(f"Webhook server started on 0.0.0.0:{PORT}")
     try:
