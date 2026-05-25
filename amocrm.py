@@ -2,7 +2,7 @@
 amoCRM integration module for BVC Bot — БЕЗ внешних зависимостей.
 Pure Python stdlib (urllib, json).
 
-Создаёт сделку в стадии «Неразобранное» + контакт с кастомными полями.
+Создаёт сделку + контакт с кастомными полями через стандартный API.
 
 Переменные окружения:
   AMOCRM_SUBDOMAIN      — поддомен amoCRM (из xxx.amocrm.ru)
@@ -391,56 +391,39 @@ def create_lead(name, phone, training_type, experience, location, tg_username):
 
     # --- Формируем запрос ---
     lead_name = f"Заявка: {name}"
-    now_ts = int(datetime.now().timestamp())
 
-    # Уникальный source_uid (нужен уникальный для каждой заявки)
-    source_uid = f"bvc_tg_bot_{now_ts}_{chat_id_hash(name, phone)}"
-
-    payload = [
-        {
-            "source_name": "Telegram Bot BVC",
-            "source_uid": source_uid,
-            "created_at": now_ts,
-            "incoming_lead_info": {
-                "form_id": "bvc_welcome_bot",
-                "form_page": "https://t.me/BVC_welcome_bot",
-                "form_name": "Заявка на пробную тренировку BVC",
-                "form_send_at": now_ts,
-            },
-            "_embedded": {
-                "leads": [
-                    {
-                        "name": lead_name,
-                        "price": 0,
-                        "custom_fields_values": lead_cf,
-                    }
-                ],
-                "contacts": [
-                    {
-                        "name": name,
-                        "custom_fields_values": contact_cf,
-                    }
-                ],
-            },
-        }
-    ]
+    # Стандартный способ: POST /api/v4/leads с вложенным контактом
+    # Создаёт сделку в первой стадии воронки + контакт за один запрос
+    lead_payload = {
+        "name": lead_name,
+        "price": 0,
+        "custom_fields_values": lead_cf,
+        "_embedded": {
+            "contacts": [
+                {
+                    "name": name,
+                    "custom_fields_values": contact_cf,
+                    "is_main": True,
+                }
+            ]
+        },
+    }
 
     pipeline_id = _get_default_pipeline_id()
     if pipeline_id:
-        payload[0]["pipeline_id"] = pipeline_id
+        lead_payload["pipeline_id"] = pipeline_id
 
-    logger.info(f"Creating amoCRM unsorted lead (form) for: {name} ({phone})")
+    logger.info(f"Creating amoCRM lead for: {name} ({phone})")
+    logger.info(f"Lead payload: {json.dumps(lead_payload, ensure_ascii=False)[:500]}")
 
-    # Правильный эндпоинт для создания в «Неразобранное» из форм
-    result = _amocrm_request("POST", "/api/v4/leads/unsorted/form", payload)
+    result = _amocrm_request("POST", "/api/v4/leads", [lead_payload])
 
     if result and "_embedded" in result:
-        items = result["_embedded"].get("items", [])
-        if items:
-            lead_id = items[0].get("id", "?")
-            contact_id = items[0].get("_embedded", {}).get("contacts", [{}])
-            if contact_id:
-                contact_id = contact_id[0].get("id", "?")
+        leads = result["_embedded"].get("leads", [])
+        if leads:
+            lead_id = leads[0].get("id", "?")
+            contacts = leads[0].get("_embedded", {}).get("contacts", [{}])
+            contact_id = contacts[0].get("id", "?") if contacts else "?"
             logger.info(f"SUCCESS: amoCRM lead created (lead_id={lead_id}, contact_id={contact_id})")
             return True
 
