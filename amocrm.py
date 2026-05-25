@@ -108,7 +108,7 @@ def _refresh_access_token():
             "client_secret": AMOCRM_CLIENT_SECRET,
             "grant_type": "refresh_token",
             "refresh_token": AMOCRM_REFRESH_TOKEN,
-            "redirect_uri": "https://example.com",
+            "redirect_uri": "https://welcomebvcbot-annagriaznova.amvera.io",
         }
         logger.info(f"Attempting token refresh to {url}")
         logger.info(f"client_id={AMOCRM_CLIENT_ID[:8]}... "
