@@ -181,10 +181,18 @@ def _get_contact_custom_fields():
         fields = result["_embedded"].get("custom_fields", [])
         _contact_fields_cache = {}
         for f in fields:
+            # Кэшируем enum-значения для полей типа select/multiselect
+            enums = {}
+            if f.get("type") in ("select", "multiselect") and "enums" in f:
+                for enum in f["enums"]:
+                    enums[enum["value"]] = enum["id"]
+                    enums[enum["id"]] = enum["value"]  # обратный lookup
+
             _contact_fields_cache[f["name"]] = {
                 "id": f["id"],
                 "code": f.get("code", ""),
                 "field_type": f.get("type", ""),
+                "enums": enums,
             }
         logger.info(f"Discovered contact custom fields: {list(_contact_fields_cache.keys())}")
     else:
@@ -367,16 +375,24 @@ def create_lead(name, phone, training_type, experience, location, tg_username):
     if not phone_added:
         logger.warning("Phone field 'Мобильный' not found in amoCRM contact fields")
 
-    # Взрослый/ребенок
-    adult_child_value = "Взрослые" if training_type == "Взрослые" else "Ребенок"
+    # Взрослый/ребенок (значения enum в amoCRM: Взрослый / Ребенок)
+    adult_child_value = "Взрослый" if training_type == "Взрослые" else "Ребенок"
     for field_name in ["Взрослый/ребенок", "Взрослый / ребенок",
                         "Взрослый/ребёнок", "Взрослый / ребёнок"]:
         if field_name in contact_fields:
             f_info = contact_fields[field_name]
-            contact_cf.append({
-                "field_id": f_info["id"],
-                "values": [{"value": adult_child_value}],
-            })
+            # Для select-полей используем enum_id если есть
+            enums = f_info.get("enums", {})
+            if enums and adult_child_value in enums:
+                contact_cf.append({
+                    "field_id": f_info["id"],
+                    "values": [{"enum_id": enums[adult_child_value]}],
+                })
+            else:
+                contact_cf.append({
+                    "field_id": f_info["id"],
+                    "values": [{"value": adult_child_value}],
+                })
             break
 
     # Telegram
