@@ -31,6 +31,7 @@ AMOCRM_ACCESS_TOKEN = os.getenv("AMOCRM_ACCESS_TOKEN", "")
 AMOCRM_CLIENT_ID = os.getenv("AMOCRM_CLIENT_ID", "")
 AMOCRM_CLIENT_SECRET = os.getenv("AMOCRM_CLIENT_SECRET", "")
 AMOCRM_REFRESH_TOKEN = os.getenv("AMOCRM_REFRESH_TOKEN", "")
+AMOCRM_AUTH_CODE = os.getenv("AMOCRM_AUTH_CODE", "")
 
 AMOCRM_BASE_URL = f"https://{AMOCRM_SUBDOMAIN}.amocrm.ru" if AMOCRM_SUBDOMAIN else ""
 
@@ -214,13 +215,68 @@ def _get_default_pipeline_id():
     return _pipeline_id_cache
 
 
+def _exchange_auth_code():
+    """Одноразовый обмен авторизационного кода на токены."""
+    global _current_access_token, AMOCRM_REFRESH_TOKEN
+
+    if not AMOCRM_AUTH_CODE:
+        return False
+
+    logger.info("AMOCRM_AUTH_CODE detected, exchanging for tokens...")
+
+    url = f"{AMOCRM_BASE_URL}/oauth2/access_token"
+    payload = {
+        "client_id": AMOCRM_CLIENT_ID,
+        "client_secret": AMOCRM_CLIENT_SECRET,
+        "grant_type": "authorization_code",
+        "code": AMOCRM_AUTH_CODE,
+        "redirect_uri": "https://welcomebvcbot-annagriaznova.amvera.io",
+    }
+    data = json.dumps(payload).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            if result.get("access_token"):
+                _current_access_token = result["access_token"]
+                AMOCRM_REFRESH_TOKEN = result.get("refresh_token", AMOCRM_REFRESH_TOKEN)
+                logger.info("SUCCESS: Auth code exchanged! Got new access_token and refresh_token")
+                logger.info(f"NEW refresh_token: {AMOCRM_REFRESH_TOKEN[:8]}...")
+                logger.info("IMPORTANT: Update AMOCRM_REFRESH_TOKEN and AMOCRM_ACCESS_TOKEN "
+                           "in Amvera env vars with new values, then remove AMOCRM_AUTH_CODE!")
+                return True
+            else:
+                logger.error(f"Auth code exchange response missing access_token: {result}")
+                return False
+    except urllib.error.HTTPError as e:
+        error_body = ""
+        try:
+            error_body = e.read().decode("utf-8")
+        except Exception:
+            pass
+        logger.error(f"Auth code exchange failed: HTTP {e.code} {e.reason} - {error_body}")
+        return False
+    except Exception as e:
+        logger.error(f"Auth code exchange failed: {e}")
+        return False
+
+
 def init_amocrm():
     """Инициализация: получить кастомные поля и pipeline при старте."""
     if not AMOCRM_SUBDOMAIN:
         logger.warning("AMOCRM_SUBDOMAIN not set, amoCRM integration disabled")
         return
 
-    if not AMOCRM_ACCESS_TOKEN and not AMOCRM_REFRESH_TOKEN:
+    # Если задан авторизационный код — сначала обменяем его на токены
+    if AMOCRM_AUTH_CODE:
+        _exchange_auth_code()
+    elif not AMOCRM_ACCESS_TOKEN and not AMOCRM_REFRESH_TOKEN:
         logger.warning("No amoCRM tokens set, amoCRM integration disabled")
         return
 

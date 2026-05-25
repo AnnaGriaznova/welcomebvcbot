@@ -20,6 +20,7 @@ Webhook-режим для Amvera.
   AMOCRM_CLIENT_ID       — ID интеграции amoCRM
   AMOCRM_CLIENT_SECRET   — секретный ключ amoCRM
   AMOCRM_REFRESH_TOKEN   — refresh-токен amoCRM
+  AMOCRM_AUTH_CODE       — (одноразово) авторизационный код для обмена на токены
 """
 
 import os
