@@ -103,13 +103,19 @@ def _refresh_access_token():
 
     with _token_lock:
         url = f"{AMOCRM_BASE_URL}/oauth2/access_token"
-        data = json.dumps({
+        payload = {
             "client_id": AMOCRM_CLIENT_ID,
             "client_secret": AMOCRM_CLIENT_SECRET,
             "grant_type": "refresh_token",
             "refresh_token": AMOCRM_REFRESH_TOKEN,
             "redirect_uri": "https://example.com",
-        }).encode("utf-8")
+        }
+        logger.info(f"Attempting token refresh to {url}")
+        logger.info(f"client_id={AMOCRM_CLIENT_ID[:8]}... "
+                   f"client_secret={AMOCRM_CLIENT_SECRET[:4]}... "
+                   f"refresh_token={AMOCRM_REFRESH_TOKEN[:8]}...")
+
+        data = json.dumps(payload).encode("utf-8")
 
         req = urllib.request.Request(
             url,
@@ -128,6 +134,14 @@ def _refresh_access_token():
                 else:
                     logger.error(f"Token refresh response missing access_token: {result}")
                     return False
+        except urllib.error.HTTPError as e:
+            error_body = ""
+            try:
+                error_body = e.read().decode("utf-8")
+            except Exception:
+                pass
+            logger.error(f"Token refresh HTTP error: {e.code} {e.reason} - Body: {error_body}")
+            return False
         except Exception as e:
             logger.error(f"Token refresh failed: {e}")
             return False
