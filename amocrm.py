@@ -17,6 +17,7 @@ import json
 import ssl
 import logging
 import threading
+import hashlib
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -295,6 +296,12 @@ def init_amocrm():
 # -----------------------------------------------------------------------------
 # Create lead + contact in amoCRM
 # -----------------------------------------------------------------------------
+def chat_id_hash(name, phone):
+    """Генерация уникального хеша для source_uid."""
+    raw = f"{name}:{phone}".encode("utf-8")
+    return hashlib.md5(raw).hexdigest()[:8]
+
+
 def create_lead(name, phone, training_type, experience, location, tg_username):
     """
     Создаёт сделку в «Неразобранное» + контакт с кастомными полями.
@@ -384,12 +391,22 @@ def create_lead(name, phone, training_type, experience, location, tg_username):
 
     # --- Формируем запрос ---
     lead_name = f"Заявка: {name}"
+    now_ts = int(datetime.now().timestamp())
+
+    # Уникальный source_uid (нужен уникальный для каждой заявки)
+    source_uid = f"bvc_tg_bot_{now_ts}_{chat_id_hash(name, phone)}"
 
     payload = [
         {
             "source_name": "Telegram Bot BVC",
-            "source_uid": "bvc_tg_bot",
-            "created_at": int(datetime.now().timestamp()),
+            "source_uid": source_uid,
+            "created_at": now_ts,
+            "incoming_lead_info": {
+                "form_id": "bvc_welcome_bot",
+                "form_page": "https://t.me/BVC_welcome_bot",
+                "form_name": "Заявка на пробную тренировку BVC",
+                "form_send_at": now_ts,
+            },
             "_embedded": {
                 "leads": [
                     {
@@ -412,9 +429,10 @@ def create_lead(name, phone, training_type, experience, location, tg_username):
     if pipeline_id:
         payload[0]["pipeline_id"] = pipeline_id
 
-    logger.info(f"Creating amoCRM unsorted lead for: {name} ({phone})")
+    logger.info(f"Creating amoCRM unsorted lead (form) for: {name} ({phone})")
 
-    result = _amocrm_request("POST", "/api/v4/leads/unsorted", payload)
+    # Правильный эндпоинт для создания в «Неразобранное» из форм
+    result = _amocrm_request("POST", "/api/v4/leads/unsorted/form", payload)
 
     if result and "_embedded" in result:
         items = result["_embedded"].get("items", [])
