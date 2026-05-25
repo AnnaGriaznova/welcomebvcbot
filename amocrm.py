@@ -247,9 +247,12 @@ def _exchange_auth_code():
                 _current_access_token = result["access_token"]
                 AMOCRM_REFRESH_TOKEN = result.get("refresh_token", AMOCRM_REFRESH_TOKEN)
                 logger.info("SUCCESS: Auth code exchanged! Got new access_token and refresh_token")
-                logger.info(f"NEW refresh_token: {AMOCRM_REFRESH_TOKEN[:8]}...")
-                logger.info("IMPORTANT: Update AMOCRM_REFRESH_TOKEN and AMOCRM_ACCESS_TOKEN "
-                           "in Amvera env vars with new values, then remove AMOCRM_AUTH_CODE!")
+                # Выводим ПОЛНЫЕ токены — это одноразовая операция,
+                # без полных значений нельзя обновить переменные в Amvera
+                logger.info(f"=== COPY THESE VALUES TO AMVERA ENV VARS ===")
+                logger.info(f"AMOCRM_ACCESS_TOKEN={_current_access_token}")
+                logger.info(f"AMOCRM_REFRESH_TOKEN={AMOCRM_REFRESH_TOKEN}")
+                logger.info(f"=== THEN DELETE AMOCRM_AUTH_CODE FROM AMVERA ===")
                 return True
             else:
                 logger.error(f"Auth code exchange response missing access_token: {result}")
