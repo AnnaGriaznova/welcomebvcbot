@@ -11,10 +11,15 @@ Webhook-режим для Amvera.
   6. Финал → отправка менеджерам
 
 Переменные окружения:
-  BOT_TOKEN       — токен Telegram бота (от @BotFather)
-  MANAGER_CHAT_ID — ID чата куда отправлять заявки (с минусом для групп)
-  WEBHOOK_URL     — публичный URL приложения в Amvera (без /webhook в конце)
-  PORT            — порт (по умолчанию 8080)
+  BOT_TOKEN              — токен Telegram бота (от @BotFather)
+  MANAGER_CHAT_ID        — ID чата куда отправлять заявки (с минусом для групп)
+  WEBHOOK_URL            — публичный URL приложения в Amvera (без /webhook в конце)
+  PORT                   — порт (по умолчанию 8080)
+  AMOCRM_SUBDOMAIN       — поддомен amoCRM (из xxx.amocrm.ru)
+  AMOCRM_ACCESS_TOKEN    — долгосрочный токен amoCRM
+  AMOCRM_CLIENT_ID       — ID интеграции amoCRM
+  AMOCRM_CLIENT_SECRET   — секретный ключ amoCRM
+  AMOCRM_REFRESH_TOKEN   — refresh-токен amoCRM
 """
 
 import os
@@ -27,6 +32,8 @@ import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from datetime import datetime
+
+import amocrm
 
 # -----------------------------------------------------------------------------
 # Environment Variables
@@ -46,6 +53,7 @@ logger.info(f"BOT_TOKEN: {'set' if BOT_TOKEN else 'NOT SET'}")
 logger.info(f"MANAGER_CHAT_ID: {MANAGER_CHAT_ID or 'NOT SET'}")
 logger.info(f"WEBHOOK_URL: {WEBHOOK_URL or 'NOT SET'}")
 logger.info(f"PORT: {PORT}")
+logger.info(f"AMOCRM_SUBDOMAIN: {os.getenv('AMOCRM_SUBDOMAIN', '') or 'NOT SET'}")
 
 # -----------------------------------------------------------------------------
 # SSL context
@@ -369,6 +377,19 @@ def finish_registration(chat_id, phone):
     else:
         logger.warning("MANAGER_CHAT_ID not set, skipping manager notification")
 
+    # Отправка в amoCRM
+    try:
+        amocrm.create_lead(
+            name=name,
+            phone=phone,
+            training_type=training_type,
+            experience=experience,
+            location=location,
+            tg_username=tg_username,
+        )
+    except Exception as e:
+        logger.error(f"ERROR: amoCRM integration exception: {e}")
+
     user_data[chat_id] = {"step": None}
     logger.info(f"User {chat_id} completed registration")
 
@@ -488,6 +509,9 @@ if __name__ == "__main__":
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN environment variable is not set!")
         exit(1)
+
+    # Инициализация amoCRM
+    amocrm.init_amocrm()
 
     logger.info("Deleting old webhook...")
     tg_request("deleteWebhook", {"drop_pending_updates": False})
