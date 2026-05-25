@@ -310,17 +310,18 @@ def chat_id_hash(name, phone):
     return hashlib.md5(raw).hexdigest()[:8]
 
 
-def create_lead(name, phone, training_type, experience, location, tg_username):
+def create_lead(name, phone, training_type, experience, location, contact_method, tg_username):
     """
-    Создаёт сделку в «Неразобранное» + контакт с кастомными полями.
+    Создаёт сделку + контакт с кастомными полями через стандартный API.
 
     Поля сделки:
       - КАКОЙ_ОПЫТ_В_ВОЛЕЙБОЛЕ = experience
       - КАКОЙ_ИЗ_НАШИХ_ЦЕНТРОВ_БЫЛ_БЫ_НАИБОЛЕЕ_УДОБЕН = location
+      - СПОСОБ_СВЯЗИ = contact_method
 
     Поля контакта:
-      - Мобильный = phone
-      - Взрослый/ребенок = Взрослые/Ребенок
+      - Телефон = phone
+      - Взрослый/ребенок = Взрослый/Ребенок
       - Telegram (ник) = tg_username
     """
     if not AMOCRM_SUBDOMAIN:
@@ -351,6 +352,16 @@ def create_lead(name, phone, training_type, experience, location, tg_username):
             lead_cf.append({
                 "field_id": lead_fields[field_name],
                 "values": [{"value": location}],
+            })
+            break
+
+    # Способ связи
+    for field_name in ["СПОСОБ СВЯЗИ", "СПОСОБ_СВЯЗИ",
+                        "Способ связи"]:
+        if field_name in lead_fields:
+            lead_cf.append({
+                "field_id": lead_fields[field_name],
+                "values": [{"value": contact_method}],
             })
             break
 

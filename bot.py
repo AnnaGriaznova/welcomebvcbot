@@ -8,7 +8,8 @@ Webhook-режим для Amvera.
   3. Локация (Песок / СПОТ / Пока не определились)
   4. Имя (свободный ввод)
   5. Телефон (кнопка или ввод)
-  6. Финал → отправка менеджерам
+  6. Способ связи (Звонок / TG / MAX)
+  7. Финал → отправка менеджерам
 
 Переменные окружения:
   BOT_TOKEN              — токен Telegram бота (от @BotFather)
@@ -144,6 +145,7 @@ STEP_EXPERIENCE = "experience"
 STEP_LOCATION = "location"
 STEP_NAME = "name"
 STEP_PHONE = "phone"
+STEP_CONTACT_METHOD = "contact_method"
 
 user_data = {}
 
@@ -313,7 +315,19 @@ def handle_phone_text(chat_id, text):
         )
         return True
 
-    finish_registration(chat_id, cleaned)
+    # После ввода телефона — спрашиваем способ связи
+    user_data[chat_id]["phone"] = cleaned
+    set_user_step(chat_id, STEP_CONTACT_METHOD)
+    logger.info(f"User {chat_id} entered phone: {cleaned}")
+
+    kb = inline_keyboard([
+        [("Звонок", "contact_call"), ("TG", "contact_tg"), ("MAX", "contact_max")]
+    ])
+    send_message(
+        chat_id,
+        "Выберите предпочтительный способ связи:",
+        reply_markup=kb,
+    )
     return True
 
 
@@ -321,8 +335,43 @@ def handle_phone_contact(chat_id, phone):
     if get_user_step(chat_id) != STEP_PHONE:
         return False
 
-    finish_registration(chat_id, phone)
+    # После ввода телефона через кнопку — спрашиваем способ связи
+    user_data[chat_id]["phone"] = phone
+    set_user_step(chat_id, STEP_CONTACT_METHOD)
+    logger.info(f"User {chat_id} shared phone: {phone}")
+
+    kb = inline_keyboard([
+        [("Звонок", "contact_call"), ("TG", "contact_tg"), ("MAX", "contact_max")]
+    ])
+    send_message(
+        chat_id,
+        "Выберите предпочтительный способ связи:",
+        reply_markup=kb,
+    )
     return True
+
+
+# -----------------------------------------------------------------------------
+# Step 6: Способ связи
+# -----------------------------------------------------------------------------
+def handle_contact_method_callback(chat_id, callback_data, callback_id):
+    if get_user_step(chat_id) != STEP_CONTACT_METHOD:
+        answer_callback_query(callback_id, "Начните заново: /start")
+        return
+
+    contact_method_map = {
+        "contact_call": "Звонок",
+        "contact_tg": "TG",
+        "contact_max": "MAX",
+    }
+    contact_method = contact_method_map.get(callback_data, "Не указано")
+    user_data[chat_id]["contact_method"] = contact_method
+    logger.info(f"User {chat_id} chose contact method: {contact_method}")
+
+    answer_callback_query(callback_id)
+
+    phone = user_data[chat_id].get("phone", "")
+    finish_registration(chat_id, phone)
 
 
 # -----------------------------------------------------------------------------
@@ -334,6 +383,7 @@ def finish_registration(chat_id, phone):
     experience = data.get("experience", "Не указано")
     location = data.get("location", "Не указано")
     name = data.get("name", "Не указано")
+    contact_method = data.get("contact_method", "Не указано")
     user_info = data.get("user_info", {})
 
     # Сообщение пользователю
@@ -358,7 +408,8 @@ def finish_registration(chat_id, phone):
         f"📋 Опыт: {experience}\n"
         f"📍 Локация: {location}\n"
         f"👤 Имя: {name}\n"
-        f"📞 Телефон: {phone}\n\n"
+        f"📞 Телефон: {phone}\n"
+        f"📱 Способ связи: {contact_method}\n\n"
         f"💬 Telegram: {tg_username}\n"
         f"📋 Имя в TG: {full_name}\n"
         f"🆔 ID: {user_id}\n"
@@ -386,6 +437,7 @@ def finish_registration(chat_id, phone):
             training_type=training_type,
             experience=experience,
             location=location,
+            contact_method=contact_method,
             tg_username=tg_username,
         )
     except Exception as e:
@@ -415,6 +467,8 @@ def process_update(update):
             handle_experience_callback(chat_id, callback_data, callback_id)
         elif callback_data.startswith("loc_"):
             handle_location_callback(chat_id, callback_data, callback_id)
+        elif callback_data.startswith("contact_"):
+            handle_contact_method_callback(chat_id, callback_data, callback_id)
         else:
             answer_callback_query(callback_id, "Начните заново: /start")
         return
