@@ -389,32 +389,47 @@ def create_lead(name, phone, training_type, experience, location, tg_username):
             })
             break
 
-    # --- Формируем запрос ---
+    # --- Шаг 1: Создаём контакт ---
+    logger.info(f"Step 1: Creating amoCRM contact for: {name} ({phone})")
+
+    contact_payload = [{
+        "name": name,
+        "custom_fields_values": contact_cf,
+    }]
+
+    contact_result = _amocrm_request("POST", "/api/v4/contacts", contact_payload)
+
+    contact_id = None
+    if contact_result and "_embedded" in contact_result:
+        contacts = contact_result["_embedded"].get("contacts", [])
+        if contacts:
+            contact_id = contacts[0].get("id")
+            logger.info(f"Contact created: id={contact_id}")
+        else:
+            logger.error(f"Contact creation returned no contacts: {contact_result}")
+    else:
+        logger.error(f"Failed to create contact. Response: {contact_result}")
+
+    # --- Шаг 2: Создаём сделку с привязкой к контакту ---
     lead_name = f"Заявка: {name}"
 
-    # Стандартный способ: POST /api/v4/leads с вложенным контактом
-    # Создаёт сделку в первой стадии воронки + контакт за один запрос
     lead_payload = {
         "name": lead_name,
         "price": 0,
         "custom_fields_values": lead_cf,
-        "_embedded": {
-            "contacts": [
-                {
-                    "name": name,
-                    "custom_fields_values": contact_cf,
-                    "is_main": True,
-                }
-            ]
-        },
     }
+
+    # Привязываем контакт по ID
+    if contact_id:
+        lead_payload["_embedded"] = {
+            "contacts": [{"id": contact_id}]
+        }
 
     pipeline_id = _get_default_pipeline_id()
     if pipeline_id:
         lead_payload["pipeline_id"] = pipeline_id
 
-    logger.info(f"Creating amoCRM lead for: {name} ({phone})")
-    logger.info(f"Lead payload: {json.dumps(lead_payload, ensure_ascii=False)[:500]}")
+    logger.info(f"Step 2: Creating amoCRM lead for: {name} ({phone})")
 
     result = _amocrm_request("POST", "/api/v4/leads", [lead_payload])
 
@@ -422,8 +437,6 @@ def create_lead(name, phone, training_type, experience, location, tg_username):
         leads = result["_embedded"].get("leads", [])
         if leads:
             lead_id = leads[0].get("id", "?")
-            contacts = leads[0].get("_embedded", {}).get("contacts", [{}])
-            contact_id = contacts[0].get("id", "?") if contacts else "?"
             logger.info(f"SUCCESS: amoCRM lead created (lead_id={lead_id}, contact_id={contact_id})")
             return True
 
