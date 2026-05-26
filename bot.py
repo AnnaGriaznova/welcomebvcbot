@@ -244,7 +244,9 @@ def handle_experience_callback(chat_id, callback_data, callback_id):
     ])
     send_message(
         chat_id,
-        "Какая локация удобнее?",
+        "Какая локация удобнее?\n\n"
+        "🏜 Песок — Октябрьская наб. 6к3 (м. Новочеркасская)\n"
+        "🏟 СПОТ — ул. Савушкина, 126 (м. Беговая)",
         reply_markup=kb,
     )
     answer_callback_query(callback_id)
