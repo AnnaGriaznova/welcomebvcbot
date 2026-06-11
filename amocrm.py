@@ -84,12 +84,19 @@ def _amocrm_request(method, endpoint, data=None, retry_on_401=True):
         except Exception:
             pass
 
-        if e.code == 401 and retry_on_401 and AMOCRM_REFRESH_TOKEN:
-            logger.info("Got 401, trying to refresh token...")
-            if _refresh_access_token():
-                return _amocrm_request(method, endpoint, data, retry_on_401=False)
+        if e.code == 401 and retry_on_401:
+            # Пробуем обновить токен при любом 401
+            if AMOCRM_REFRESH_TOKEN or AMOCRM_AUTH_CODE:
+                logger.info("Got 401, trying to refresh token...")
+                if AMOCRM_AUTH_CODE:
+                    _exchange_auth_code()
+                if _refresh_access_token():
+                    return _amocrm_request(method, endpoint, data, retry_on_401=False)
+                else:
+                    logger.error("Token refresh failed, amoCRM request aborted")
+                    return None
             else:
-                logger.error("Token refresh failed, amoCRM request aborted")
+                logger.error("Got 401 but no refresh_token or auth_code available")
                 return None
 
         logger.error(f"amoCRM API error ({method} {endpoint}): HTTP {e.code} - {error_body}")
@@ -293,12 +300,18 @@ def init_amocrm():
         return
 
     logger.info(f"Initializing amoCRM integration (subdomain: {AMOCRM_SUBDOMAIN})...")
+    logger.info(f"access_token set: {bool(_current_access_token)} "
+               f"refresh_token set: {bool(AMOCRM_REFRESH_TOKEN)}")
 
     _get_lead_custom_fields()
     _get_contact_custom_fields()
     _get_default_pipeline_id()
 
-    logger.info("amoCRM integration initialized")
+    if not _lead_fields_cache and not _contact_fields_cache:
+        logger.warning("amoCRM fields not discovered — amoCRM integration may not work. "
+                       "Bot will continue without amoCRM.")
+    else:
+        logger.info("amoCRM integration initialized")
 
 
 # -----------------------------------------------------------------------------
