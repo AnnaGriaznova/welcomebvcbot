@@ -570,8 +570,8 @@ if __name__ == "__main__":
     # Инициализация amoCRM
     amocrm.init_amocrm()
 
-    logger.info("Deleting old webhook...")
-    tg_request("deleteWebhook", {"drop_pending_updates": False})
+    logger.info("Deleting old webhook (with pending updates drop)...")
+    tg_request("deleteWebhook", {"drop_pending_updates": True})
 
     if WEBHOOK_URL:
         webhook_endpoint = f"{WEBHOOK_URL.rstrip('/')}/webhook"
